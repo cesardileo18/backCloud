@@ -45,6 +45,9 @@ app.post('/api/autologin', async (req, res) => {
     loginUrl.searchParams.append('qlik-web-integration-id', webIntegrationId);
 
     let success = false;
+    let cookies = [];
+    let finalUrl = '';
+    let html = '';
 
     for (let i = 0; i < 5; i++) {
       console.log(`🔁 Intento ${i + 1}: navegando a ${loginUrl.toString()}`);
@@ -55,9 +58,8 @@ app.post('/api/autologin', async (req, res) => {
         });
 
         console.log('✅ Página cargada');
-        await delay(5000); // espera ADFS
+        await delay(5000);
 
-        // Buscar los campos y llenarlos
         const userInput = await page.$('#userNameInput');
         const passInput = await page.$('#passwordInput');
 
@@ -68,7 +70,6 @@ app.post('/api/autologin', async (req, res) => {
         await userInput.type(username, { delay: 30 });
         await passInput.type(password, { delay: 30 });
 
-        // Ejecutar la función JS de login en la página
         console.log('🚀 Ejecutando Login.submitLoginRequest()');
         await page.evaluate(() => {
           Login.submitLoginRequest();
@@ -76,6 +77,11 @@ app.post('/api/autologin', async (req, res) => {
 
         console.log('🚀 Formulario enviado, esperando redirección...');
         await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 90000 });
+
+        // ✅ Capturar info después del login exitoso
+        cookies = await page.cookies();
+        finalUrl = page.url();
+        html = await page.content();
 
         console.log('✅ Login exitoso');
         success = true;
@@ -89,10 +95,21 @@ app.post('/api/autologin', async (req, res) => {
     await browser.close();
 
     if (!success) {
-      throw new Error('❌ No se pudo completar el login tras múltiples intentos');
+      return res.status(500).json({
+        success: false,
+        message: '❌ No se pudo completar el login tras múltiples intentos',
+      });
     }
 
-    res.json({ success: true, loggedViaPuppeteer: true });
+    // ✅ Enviar todo al frontend
+    res.json({
+      success: true,
+      loggedViaPuppeteer: true,
+      cookies,
+      finalUrl,
+      htmlSnippet: html.slice(0, 1000) + '...', // opcional
+    });
+
   } catch (error) {
     console.error('🛑 Error en Puppeteer:', error.message);
     if (browser) await browser.close();
