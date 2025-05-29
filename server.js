@@ -6,15 +6,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Utilidad de delay
+// Delay utilitario
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-// Verificación de salud
+// Healthcheck
 app.get('/api/status', (req, res) => {
   res.json({ status: '✅ API levantada correctamente' });
 });
 
-// Endpoint de autologin Qlik Cloud
+// Endpoint de autologin
 app.post('/api/autologin', async (req, res) => {
   const { username, password, tenantUrl, webIntegrationId } = req.body;
   const returnto = req.headers.origin || 'http://localhost:5173';
@@ -47,7 +47,7 @@ app.post('/api/autologin', async (req, res) => {
     let success = false;
 
     for (let i = 0; i < 5; i++) {
-      console.log(`🔁 Intento ${i + 1}: navegando a ${loginUrl}`);
+      console.log(`🔁 Intento ${i + 1}: navegando a ${loginUrl.toString()}`);
       try {
         await page.goto(loginUrl.toString(), {
           waitUntil: 'domcontentloaded',
@@ -55,19 +55,24 @@ app.post('/api/autologin', async (req, res) => {
         });
 
         console.log('✅ Página cargada');
-        await delay(5000); // Espera que ADFS cargue
+        await delay(5000); // espera ADFS
 
+        // Buscar los campos y llenarlos
         const userInput = await page.$('#userNameInput');
         const passInput = await page.$('#passwordInput');
-        const submitButton = await page.$('#submitButton');
 
-        if (!userInput || !passInput || !submitButton) {
-          throw new Error('No se encontraron los campos de login (¿ADFS no cargó?)');
+        if (!userInput || !passInput) {
+          throw new Error('⚠️ No se encontraron los campos de login');
         }
 
         await userInput.type(username, { delay: 30 });
         await passInput.type(password, { delay: 30 });
-        await submitButton.click();
+
+        // Ejecutar la función JS de login en la página
+        console.log('🚀 Ejecutando Login.submitLoginRequest()');
+        await page.evaluate(() => {
+          Login.submitLoginRequest();
+        });
 
         console.log('🚀 Formulario enviado, esperando redirección...');
         await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 90000 });
@@ -84,18 +89,18 @@ app.post('/api/autologin', async (req, res) => {
     await browser.close();
 
     if (!success) {
-      throw new Error('No se pudo completar el login tras múltiples intentos');
+      throw new Error('❌ No se pudo completar el login tras múltiples intentos');
     }
 
     res.json({ success: true, loggedViaPuppeteer: true });
   } catch (error) {
-    console.error('🛑 Error final en Puppeteer:', error.message);
+    console.error('🛑 Error en Puppeteer:', error.message);
     if (browser) await browser.close();
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// Puerto dinámico (Render)
+// Puerto dinámico para Render
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 Backend Qlik Demo corriendo en http://localhost:${PORT}`);
