@@ -435,7 +435,6 @@ app.post('/api/validate-token', async (req, res) => {
     }
     
     const response = await fetch(testUrl, { headers });
-    
     res.json({
       valid: response.ok,
       status: response.status,
