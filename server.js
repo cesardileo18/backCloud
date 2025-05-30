@@ -5,7 +5,7 @@ import puppeteer from 'puppeteer';
 const app = express();
 app.use(cors());
 app.use(express.json());
-const webIntegrationId = "Jqf5E5DGvfziKCFAezrxVJtFZF4gdcn5"
+// const webIntegrationId = "Jqf5E5DGvfziKCFAezrxVJtFZF4gdcn5"
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 // Healthcheck
@@ -164,7 +164,7 @@ const setupRequestInterception = async (page) => {
 
 // Endpoint de autologin
 app.post('/api/autologin', async (req, res) => {
-  const { username, password, tenantUrl } = req.body;
+  const { username, password, tenantUrl, webIntegrationId } = req.body;
   const returnto = req.headers.origin || 'http://localhost:5173';
   
   let browser;
