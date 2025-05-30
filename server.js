@@ -16,13 +16,11 @@ app.get('/api/status', (req, res) => {
 // Función para extraer tokens específicos de Qlik
 const extractQlikTokens = async (page) => {
   try {
-    // 1. Capturar localStorage, sessionStorage y variables globales
     const allData = await page.evaluate(() => {
       const localStorage = {};
       const sessionStorage = {};
       const globalVars = {};
       const metaTags = {};
-      const scriptData = {};
       
       // LocalStorage
       for (let i = 0; i < window.localStorage.length; i++) {
@@ -40,12 +38,10 @@ const extractQlikTokens = async (page) => {
       try {
         if (window.qlik) globalVars.qlik = window.qlik;
         if (window.require) globalVars.requireConfig = window.require;
-        if (window._) globalVars.underscore = window._;
         if (window.csrfToken) globalVars.csrfToken = window.csrfToken;
         if (window.qlikToken) globalVars.qlikToken = window.qlikToken;
         if (window.authToken) globalVars.authToken = window.authToken;
         
-        // Buscar en window object por tokens
         Object.keys(window).forEach(key => {
           if (key.toLowerCase().includes('token') || 
               key.toLowerCase().includes('csrf') ||
@@ -64,36 +60,19 @@ const extractQlikTokens = async (page) => {
         metaTags[meta.getAttribute('name')] = meta.getAttribute('content');
       });
       
-      // Scripts con configuración
-      const scripts = document.querySelectorAll('script');
-      scripts.forEach((script, index) => {
-        if (script.innerHTML && (
-          script.innerHTML.includes('token') || 
-          script.innerHTML.includes('csrf') ||
-          script.innerHTML.includes('qlik') ||
-          script.innerHTML.includes('config')
-        )) {
-          scriptData[`script_${index}`] = script.innerHTML.substring(0, 500);
-        }
-      });
-      
-      return { localStorage, sessionStorage, globalVars, metaTags, scriptData };
+      return { localStorage, sessionStorage, globalVars, metaTags };
     });
 
-    // 2. Extraer CSRF token del HTML si existe
     const csrfFromPage = await page.evaluate(() => {
-      // Buscar CSRF en inputs hidden
       const csrfInput = document.querySelector('input[name="csrf_token"], input[name="_token"], input[name="csrfToken"]');
       if (csrfInput) return csrfInput.value;
       
-      // Buscar en meta tags
       const csrfMeta = document.querySelector('meta[name="csrf-token"], meta[name="_token"]');
       if (csrfMeta) return csrfMeta.getAttribute('content');
       
       return null;
     });
 
-    // 3. Organizar tokens encontrados
     const qlikTokens = {
       accessToken: null,
       csrfToken: csrfFromPage,
@@ -103,70 +82,29 @@ const extractQlikTokens = async (page) => {
       authToken: null
     };
 
-    // Buscar en localStorage
-    Object.keys(allData.localStorage).forEach(key => {
-      const value = allData.localStorage[key];
-      if (value && (
-        key.toLowerCase().includes('token') || 
-        key.toLowerCase().includes('csrf') ||
-        key.toLowerCase().includes('qlik') || 
-        key.toLowerCase().includes('sense') ||
-        key.toLowerCase().includes('auth')
-      )) {
-        qlikTokens[key] = value;
-      }
-    });
+    // Buscar tokens en todos los almacenamientos
+    [...Object.keys(allData.localStorage), ...Object.keys(allData.sessionStorage), ...Object.keys(allData.globalVars), ...Object.keys(allData.metaTags)]
+      .forEach(key => {
+        const value = allData.localStorage[key] || allData.sessionStorage[key] || allData.globalVars[key] || allData.metaTags[key];
+        if (value && (
+          key.toLowerCase().includes('token') || 
+          key.toLowerCase().includes('csrf') ||
+          key.toLowerCase().includes('qlik') || 
+          key.toLowerCase().includes('sense') ||
+          key.toLowerCase().includes('auth')
+        )) {
+          qlikTokens[key] = value;
+        }
+      });
 
-    // Buscar en sessionStorage
-    Object.keys(allData.sessionStorage).forEach(key => {
-      const value = allData.sessionStorage[key];
-      if (value && (
-        key.toLowerCase().includes('token') || 
-        key.toLowerCase().includes('csrf') ||
-        key.toLowerCase().includes('qlik') || 
-        key.toLowerCase().includes('sense') ||
-        key.toLowerCase().includes('auth')
-      )) {
-        qlikTokens[key] = value;
-      }
-    });
-
-    // Buscar en variables globales
-    Object.keys(allData.globalVars).forEach(key => {
-      const value = allData.globalVars[key];
-      if (value && typeof value === 'string') {
-        qlikTokens[key] = value;
-      }
-    });
-
-    // Buscar en meta tags
-    Object.keys(allData.metaTags).forEach(key => {
-      const value = allData.metaTags[key];
-      if (value) {
-        qlikTokens[key] = value;
-      }
-    });
-
-    console.log('🔍 Datos extraídos:', {
-      localStorageKeys: Object.keys(allData.localStorage),
-      sessionStorageKeys: Object.keys(allData.sessionStorage),
-      globalVars: Object.keys(allData.globalVars),
-      metaTags: Object.keys(allData.metaTags),
-      tokensFound: Object.keys(qlikTokens).filter(k => qlikTokens[k])
-    });
-
-    return { 
-      storageData: allData, 
-      qlikTokens,
-      csrfFromPage 
-    };
+    return { storageData: allData, qlikTokens, csrfFromPage };
   } catch (error) {
     console.warn('⚠️ Error extrayendo tokens:', error.message);
     return { storageData: {}, qlikTokens: {}, csrfFromPage: null };
   }
 };
 
-// Función para interceptar requests y capturar headers de autenticación
+// Función para interceptar requests y capturar headers
 const setupRequestInterception = async (page) => {
   const capturedData = {
     headers: [],
@@ -176,12 +114,10 @@ const setupRequestInterception = async (page) => {
   
   await page.setRequestInterception(true);
   
-  // Interceptar requests
   page.on('request', (request) => {
     const headers = request.headers();
     const url = request.url();
     
-    // Capturar todas las peticiones importantes
     if (url.includes('/api/') || 
         url.includes('/auth') || 
         headers['authorization'] || 
@@ -205,7 +141,6 @@ const setupRequestInterception = async (page) => {
     request.continue();
   });
 
-  // Interceptar responses para capturar Set-Cookie
   page.on('response', async (response) => {
     const url = response.url();
     const headers = response.headers();
@@ -227,13 +162,13 @@ const setupRequestInterception = async (page) => {
   return capturedData;
 };
 
-// Endpoint de autologin mejorado
+// Endpoint de autologin
 app.post('/api/autologin', async (req, res) => {
   const { username, password, tenantUrl, webIntegrationId } = req.body;
   const returnto = req.headers.origin || 'http://localhost:5173';
   
   let browser;
-  let capturedHeaders = [];
+  let capturedData = {};
 
   try {
     browser = await puppeteer.launch({
@@ -250,9 +185,7 @@ app.post('/api/autologin', async (req, res) => {
     });
 
     const page = await browser.newPage();
-    
-    // Configurar interceptación de requests
-    const capturedData = await setupRequestInterception(page);
+    capturedData = await setupRequestInterception(page);
     
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36'
@@ -300,15 +233,11 @@ app.post('/api/autologin', async (req, res) => {
           timeout: 90000
         });
 
-        // ✅ Capturar toda la información después del login
         cookies = await page.cookies();
         finalUrl = page.url();
-        
-        // Extraer tokens del almacenamiento del navegador
         const tokenData = await extractQlikTokens(page);
         tokens = tokenData;
         
-        // Esperar un poco más para capturar requests adicionales
         await delay(3000);
         
         // Intentar navegar a una página de API para activar tokens
@@ -319,7 +248,6 @@ app.post('/api/autologin', async (req, res) => {
           });
           await delay(2000);
           
-          // Capturar cookies y tokens después de la navegación a API
           const apiCookies = await page.cookies();
           cookies = [...cookies, ...apiCookies].filter((cookie, index, self) => 
             index === self.findIndex(c => c.name === cookie.name)
@@ -355,7 +283,6 @@ app.post('/api/autologin', async (req, res) => {
       });
     }
 
-    // 🎯 Filtrar y organizar cookies importantes
     const importantCookies = cookies.filter(cookie => 
       cookie.name.toLowerCase().includes('session') ||
       cookie.name.toLowerCase().includes('token') ||
@@ -364,40 +291,28 @@ app.post('/api/autologin', async (req, res) => {
       cookie.name.toLowerCase().includes('csrf')
     );
 
-    // 🎯 Crear string de cookies para usar en el frontend
     const cookieString = cookies
       .map(cookie => `${cookie.name}=${cookie.value}`)
       .join('; ');
 
-    // ✅ Respuesta completa con toda la información
     res.json({
       success: true,
       loggedViaPuppeteer: true,
-      
-      // Cookies completas
       allCookies: cookies,
       importantCookies,
       cookieString,
-      
-      // Tokens extraídos
       tokens: tokens.qlikTokens,
       storageData: tokens.storageData,
-      
-      // Headers capturados durante las peticiones
-      capturedHeaders: capturedData.headers.slice(-10), // Los últimos 10
+      capturedHeaders: capturedData.headers.slice(-10),
       capturedResponses: capturedData.responses,
-      
-      // Info adicional
       finalUrl,
       tenantUrl,
-      
-      // Instrucciones para el frontend
       usage: {
         cookieHeader: `Cookie: ${cookieString}`,
         authorizationHeaders: capturedData.headers
           .filter(h => h.headers.authorization)
           .map(h => h.headers.authorization)
-          .slice(-1)[0], // El último token de autorización
+          .slice(-1)[0],
         csrfToken: tokens.csrfFromPage || tokens.qlikTokens?.csrfToken,
         xrfKey: capturedData.headers
           .filter(h => h.headers['x-qlik-xrfkey'])
@@ -417,29 +332,83 @@ app.post('/api/autologin', async (req, res) => {
   }
 });
 
-// Nuevo endpoint para validar tokens
-app.post('/api/validate-token', async (req, res) => {
-  const { cookieString, tenantUrl, authHeader } = req.body;
+// 🎯 NUEVO: Endpoint proxy para API de Qlik
+app.post('/api/qlik-proxy', async (req, res) => {
+  const { endpoint, method = 'GET', body, cookies, csrfToken, tenantUrl } = req.body;
   
   try {
-    // Hacer una petición de prueba a Qlik con los tokens
-    const testUrl = `${tenantUrl}/api/v1/users/me`;
-    
+    const url = `${tenantUrl}${endpoint}`;
     const headers = {
-      'Cookie': cookieString,
+      'Cookie': cookies,
+      'Content-Type': 'application/json',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     };
-    
-    if (authHeader) {
-      headers['Authorization'] = authHeader;
+
+    // Agregar CSRF token si está disponible
+    if (csrfToken) {
+      headers['X-Qlik-XrfKey'] = csrfToken;
     }
+
+    console.log(`🌐 Proxy request to: ${url}`);
+    console.log(`📝 Headers:`, headers);
+
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined
+    });
+
+    const responseText = await response.text();
+    let responseData;
     
-    const response = await fetch(testUrl, { headers });
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (e) {
+      responseData = responseText;
+    }
+
+    console.log(`📥 Response status: ${response.status}`);
+
+    res.status(response.status).json({
+      success: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      data: responseData,
+      headers: Object.fromEntries(response.headers.entries())
+    });
+
+  } catch (error) {
+    console.error('❌ Error en proxy:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// 🎯 NUEVO: Endpoint para validar sesión via proxy
+app.post('/api/validate-session', async (req, res) => {
+  const { cookies, csrfToken, tenantUrl } = req.body;
+  
+  try {
+    const endpoint = '/api/v1/users/me';
+    const url = `${tenantUrl}${endpoint}`;
+    
+    const headers = {
+      'Cookie': cookies,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    };
+
+    if (csrfToken) {
+      headers['X-Qlik-XrfKey'] = csrfToken;
+    }
+
+    const response = await fetch(url, { headers });
+    
     res.json({
       valid: response.ok,
       status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries())
+      statusText: response.statusText
     });
     
   } catch (error) {
