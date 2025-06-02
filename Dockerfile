@@ -1,56 +1,49 @@
-# Usar imagen oficial de Node con Puppeteer preconfigurado y optimizada
-FROM ghcr.io/puppeteer/puppeteer:22.0.0
+# Usar imagen Node 22 estable y instalar Puppeteer manualmente
+FROM node:22-slim
 
-# Cambiar a root para instalaciones del sistema
-USER root
+# Usar imagen Node estable y instalar Puppeteer manualmente
+FROM node:18-slim
 
-# Instalar dependencias adicionales para estabilidad
+# Instalar dependencias del sistema necesarias para Puppeteer
 RUN apt-get update && apt-get install -y \
-    dumb-init \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libdrm2 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    xvfb \
-    && apt-get clean \
+    wget \
+    gnupg \
+    ca-certificates \
+    procps \
+    libxss1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Instalar Google Chrome estable
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Crear usuario no-root
+RUN groupadd -r pptruser && useradd -r -g pptruser -G audio,video pptruser \
+    && mkdir -p /home/pptruser/Downloads \
+    && chown -R pptruser:pptruser /home/pptruser
 
 # Establecer directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de dependencias primero (para cache de Docker)
+# Copiar archivos de dependencias
 COPY package*.json ./
 
-# Instalar dependencias con configuraciones optimizadas
-RUN npm ci --only=production --no-audit --no-fund && \
-    npm cache clean --force && \
-    rm -rf ~/.npm
+# Instalar dependencias de Node
+RUN npm install --production && npm cache clean --force
 
 # Copiar el resto del código
 COPY . .
 
-# Crear directorio para logs y temp
-RUN mkdir -p /app/logs /app/temp && \
-    chown -R pptruser:pptruser /app
+# Cambiar ownership al usuario no-root
+RUN chown -R pptruser:pptruser /app
 
-# Variables de entorno optimizadas
-ENV NODE_ENV=production \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable \
-    NODE_OPTIONS="--max-old-space-size=512" \
-    UV_THREADPOOL_SIZE=4
-
-# Configurar límites de memoria y recursos
-ENV MALLOC_ARENA_MAX=2
+# Variables de entorno
+ENV NODE_ENV=production
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
 # Exponer puerto
 EXPOSE 10000
@@ -58,12 +51,5 @@ EXPOSE 10000
 # Cambiar al usuario no-root
 USER pptruser
 
-# Usar dumb-init para manejo correcto de señales
-ENTRYPOINT ["dumb-init", "--"]
-
-# Comando de inicio con verificación de salud
-CMD ["node", "server.js"]
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:10000/api/health || exit 1
+# Comando de inicio
+CMD ["npm", "start"]
