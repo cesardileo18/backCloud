@@ -1,41 +1,28 @@
-# Usar imagen con Chromium preinstalado
-FROM mcr.microsoft.com/playwright:v1.44.1-jammy
+# Usar imagen oficial de Node con Puppeteer preconfigurado
+FROM ghcr.io/puppeteer/puppeteer:22.0.0
 
-# Instalar Node.js 18 (más estable para Puppeteer)
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-    apt-get install -y nodejs
-
-# Crear usuario no-root para seguridad
-RUN groupadd -r pptruser && useradd -r -g pptruser -G audio,video pptruser && \
-    mkdir -p /home/pptruser/Downloads && \
-    chown -R pptruser:pptruser /home/pptruser
-
-# Crear directorio de trabajo
+# Establecer directorio de trabajo
 WORKDIR /app
 
 # Copiar archivos de dependencias
 COPY package*.json ./
 
-# Instalar dependencias como root
-RUN npm install --production && \
-    npm cache clean --force
+# Instalar dependencias (sin Puppeteer porque ya está incluido)
+RUN npm install --production --omit=dev
 
 # Copiar el resto del código
 COPY . .
 
-# Cambiar ownership de los archivos
-RUN chown -R pptruser:pptruser /app
+# Variables de entorno
+ENV NODE_ENV=production
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
-# Cambiar a usuario no-root
-USER pptruser
-
-# Exponer el puerto que Render espera
+# Exponer puerto
 EXPOSE 10000
 
-# Variables de entorno para Puppeteer
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV NODE_ENV=production
+# Usuario no-root ya configurado en la imagen base
+USER pptruser
 
-# Comando para iniciar el servidor
+# Comando de inicio
 CMD ["npm", "start"]
