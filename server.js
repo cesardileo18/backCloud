@@ -3,121 +3,14 @@ import cors from 'cors';
 import puppeteer from 'puppeteer';
 
 const app = express();
-
-// Configuración
-const isProduction = process.env.NODE_ENV === 'production';
-const PORT = process.env.PORT || 3001;
-
-// Middleware
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Configuración de Puppeteer para producción
-const getPuppeteerConfig = () => {
-  if (isProduction) {
-    return {
-      headless: 'new',
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--single-process',
-        '--no-zygote',
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor',
-        '--memory-pressure-off'
-      ],
-    };
-  }
-  
-  return {
-    headless: 'shell',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--single-process',
-      '--no-zygote',
-    ],
-  };
-};
-
+app.use(express.json());
+// const webIntegrationId = "Jqf5E5DGvfziKCFAezrxVJtFZF4gdcn5"
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 // Healthcheck
 app.get('/api/status', (req, res) => {
-  res.json({ 
-    status: '✅ API levantada correctamente',
-    environment: process.env.NODE_ENV || 'development',
-    port: PORT,
-    timestamp: new Date().toISOString(),
-    nodeVersion: process.version,
-    puppeteerPath: process.env.PUPPETEER_EXECUTABLE_PATH || 'default'
-  });
-});
-
-// Test de Puppeteer
-app.get('/api/test-browser', async (req, res) => {
-  let browser;
-  const startTime = Date.now();
-  
-  try {
-    console.log('🧪 Iniciando test de browser...');
-    const config = getPuppeteerConfig();
-    console.log('📋 Config Puppeteer:', JSON.stringify(config, null, 2));
-    
-    browser = await puppeteer.launch(config);
-    console.log('✅ Browser lanzado exitosamente');
-    
-    const page = await browser.newPage();
-    console.log('✅ Nueva página creada');
-    
-    await page.goto('https://httpbin.org/user-agent', { 
-      waitUntil: 'networkidle0',
-      timeout: 30000 
-    });
-    console.log('✅ Navegación exitosa');
-    
-    const userAgent = await page.evaluate(() => navigator.userAgent);
-    const title = await page.title();
-    
-    await browser.close();
-    
-    const duration = Date.now() - startTime;
-    
-    res.json({
-      success: true,
-      message: '🎉 Puppeteer funcionando correctamente',
-      duration: `${duration}ms`,
-      userAgent,
-      title,
-      config: config
-    });
-    
-  } catch (error) {
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (closeError) {
-        console.error('Error cerrando browser:', closeError);
-      }
-    }
-    
-    const duration = Date.now() - startTime;
-    console.error('❌ Error en test de browser:', error);
-    
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      stack: isProduction ? undefined : error.stack,
-      duration: `${duration}ms`,
-      config: getPuppeteerConfig()
-    });
-  }
+  res.json({ status: '✅ API levantada correctamente' });
 });
 
 // Función para extraer tokens específicos de Qlik
@@ -130,29 +23,21 @@ const extractQlikTokens = async (page) => {
       const metaTags = {};
       
       // LocalStorage
-      try {
-        for (let i = 0; i < window.localStorage.length; i++) {
-          const key = window.localStorage.key(i);
-          localStorage[key] = window.localStorage.getItem(key);
-        }
-      } catch (e) {
-        console.warn('LocalStorage no disponible:', e);
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        localStorage[key] = window.localStorage.getItem(key);
       }
       
       // SessionStorage
-      try {
-        for (let i = 0; i < window.sessionStorage.length; i++) {
-          const key = window.sessionStorage.key(i);
-          sessionStorage[key] = window.sessionStorage.getItem(key);
-        }
-      } catch (e) {
-        console.warn('SessionStorage no disponible:', e);
+      for (let i = 0; i < window.sessionStorage.length; i++) {
+        const key = window.sessionStorage.key(i);
+        sessionStorage[key] = window.sessionStorage.getItem(key);
       }
       
       // Variables globales de Qlik
       try {
-        if (window.qlik) globalVars.qlik = 'presente';
-        if (window.require) globalVars.requireConfig = 'presente';
+        if (window.qlik) globalVars.qlik = window.qlik;
+        if (window.require) globalVars.requireConfig = window.require;
         if (window.csrfToken) globalVars.csrfToken = window.csrfToken;
         if (window.qlikToken) globalVars.qlikToken = window.qlikToken;
         if (window.authToken) globalVars.authToken = window.authToken;
@@ -170,31 +55,22 @@ const extractQlikTokens = async (page) => {
       }
       
       // Meta tags con tokens
-      try {
-        const metaElements = document.querySelectorAll('meta[name*="token"], meta[name*="csrf"], meta[name*="auth"]');
-        metaElements.forEach(meta => {
-          metaTags[meta.getAttribute('name')] = meta.getAttribute('content');
-        });
-      } catch (e) {
-        console.warn('Error accessing meta tags:', e);
-      }
+      const metaElements = document.querySelectorAll('meta[name*="token"], meta[name*="csrf"], meta[name*="auth"]');
+      metaElements.forEach(meta => {
+        metaTags[meta.getAttribute('name')] = meta.getAttribute('content');
+      });
       
       return { localStorage, sessionStorage, globalVars, metaTags };
     });
 
     const csrfFromPage = await page.evaluate(() => {
-      try {
-        const csrfInput = document.querySelector('input[name="csrf_token"], input[name="_token"], input[name="csrfToken"]');
-        if (csrfInput) return csrfInput.value;
-        
-        const csrfMeta = document.querySelector('meta[name="csrf-token"], meta[name="_token"]');
-        if (csrfMeta) return csrfMeta.getAttribute('content');
-        
-        return null;
-      } catch (e) {
-        console.warn('Error extracting CSRF:', e);
-        return null;
-      }
+      const csrfInput = document.querySelector('input[name="csrf_token"], input[name="_token"], input[name="csrfToken"]');
+      if (csrfInput) return csrfInput.value;
+      
+      const csrfMeta = document.querySelector('meta[name="csrf-token"], meta[name="_token"]');
+      if (csrfMeta) return csrfMeta.getAttribute('content');
+      
+      return null;
     });
 
     const qlikTokens = {
@@ -236,69 +112,52 @@ const setupRequestInterception = async (page) => {
     cookies: []
   };
   
-  try {
-    await page.setRequestInterception(true);
+  await page.setRequestInterception(true);
+  
+  page.on('request', (request) => {
+    const headers = request.headers();
+    const url = request.url();
     
-    page.on('request', (request) => {
-      try {
-        const headers = request.headers();
-        const url = request.url();
-        
-        if (url.includes('/api/') || 
-            url.includes('/auth') || 
-            headers['authorization'] || 
-            headers['x-qlik-xrfkey'] || 
-            headers['cookie']) {
-          
-          capturedData.headers.push({
-            url: url,
-            method: request.method(),
-            headers: {
-              authorization: headers['authorization'],
-              'x-qlik-xrfkey': headers['x-qlik-xrfkey'],
-              cookie: headers['cookie'],
-              'x-csrf-token': headers['x-csrf-token'],
-              'content-type': headers['content-type']
-            },
-            timestamp: Date.now()
-          });
-        }
-        
-        request.continue();
-      } catch (e) {
-        console.warn('Error en request interceptor:', e);
-        try {
-          request.continue();
-        } catch (continueError) {
-          console.warn('Error haciendo continue:', continueError);
-        }
-      }
-    });
+    if (url.includes('/api/') || 
+        url.includes('/auth') || 
+        headers['authorization'] || 
+        headers['x-qlik-xrfkey'] || 
+        headers['cookie']) {
+      
+      capturedData.headers.push({
+        url: url,
+        method: request.method(),
+        headers: {
+          authorization: headers['authorization'],
+          'x-qlik-xrfkey': headers['x-qlik-xrfkey'],
+          cookie: headers['cookie'],
+          'x-csrf-token': headers['x-csrf-token'],
+          'content-type': headers['content-type']
+        },
+        timestamp: Date.now()
+      });
+    }
+    
+    request.continue();
+  });
 
-    page.on('response', async (response) => {
-      try {
-        const url = response.url();
-        const headers = response.headers();
-        
-        if (headers['set-cookie'] || url.includes('/auth') || url.includes('/login')) {
-          capturedData.responses.push({
-            url: url,
-            status: response.status(),
-            headers: {
-              'set-cookie': headers['set-cookie'],
-              'location': headers['location'],
-              'x-qlik-xrfkey': headers['x-qlik-xrfkey']
-            },
-            timestamp: Date.now()
-          });
-        }
-      } catch (e) {
-        console.warn('Error en response interceptor:', e);
-      }
-    });
-  } catch (e) {
-    console.warn('Error configurando interceptors:', e);
-  }
+  page.on('response', async (response) => {
+    const url = response.url();
+    const headers = response.headers();
+    
+    if (headers['set-cookie'] || url.includes('/auth') || url.includes('/login')) {
+      capturedData.responses.push({
+        url: url,
+        status: response.status(),
+        headers: {
+          'set-cookie': headers['set-cookie'],
+          'location': headers['location'],
+          'x-qlik-xrfkey': headers['x-qlik-xrfkey']
+        },
+        timestamp: Date.now()
+      });
+    }
+  });
   
   return capturedData;
 };
@@ -308,29 +167,28 @@ app.post('/api/autologin', async (req, res) => {
   const { username, password, tenantUrl, webIntegrationId } = req.body;
   const returnto = req.headers.origin || 'http://localhost:5173';
   
-  if (!username || !password || !tenantUrl || !webIntegrationId) {
-    return res.status(400).json({
-      success: false,
-      message: 'Faltan parámetros requeridos: username, password, tenantUrl, webIntegrationId'
-    });
-  }
-  
   let browser;
   let capturedData = {};
-  const startTime = Date.now();
 
   try {
-    console.log('🚀 Iniciando proceso de autologin...');
-    browser = await puppeteer.launch(getPuppeteerConfig());
-    console.log('✅ Browser lanzado');
+    browser = await puppeteer.launch({
+      headless: 'shell',
+      executablePath: puppeteer.executablePath(),
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--no-zygote',
+      ],
+    });
 
     const page = await browser.newPage();
-    console.log('✅ Nueva página creada');
-    
     capturedData = await setupRequestInterception(page);
     
     await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36'
     );
 
     const loginUrl = new URL(`${tenantUrl}/login`);
@@ -342,44 +200,37 @@ app.post('/api/autologin', async (req, res) => {
     let finalUrl = '';
     let tokens = {};
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       console.log(`🔁 Intento ${i + 1}: navegando a ${loginUrl.toString()}`);
       
       try {
         await page.goto(loginUrl.toString(), {
           waitUntil: 'domcontentloaded',
-          timeout: 45000,
+          timeout: 60000 + i * 20000,
         });
         
         console.log('✅ Página cargada');
-        await delay(3000);
-        
-        // Verificar elementos del login
-        const userInput = await page.waitForSelector('#userNameInput', { timeout: 10000 });
-        const passInput = await page.waitForSelector('#passwordInput', { timeout: 10000 });
+        await delay(5000);
+
+        const userInput = await page.$('#userNameInput');
+        const passInput = await page.$('#passwordInput');
         
         if (!userInput || !passInput) {
           throw new Error('⚠️ No se encontraron los campos de login');
         }
 
-        await userInput.type(username, { delay: 20 });
-        await passInput.type(password, { delay: 20 });
+        await userInput.type(username, { delay: 30 });
+        await passInput.type(password, { delay: 30 });
         
         console.log('🚀 Ejecutando Login.submitLoginRequest()');
         await page.evaluate(() => {
-          if (typeof Login !== 'undefined' && Login.submitLoginRequest) {
-            Login.submitLoginRequest();
-          } else {
-            // Fallback: buscar y hacer clic en el botón de login
-            const submitBtn = document.querySelector('#submitButton, input[type="submit"], button[type="submit"]');
-            if (submitBtn) submitBtn.click();
-          }
+          Login.submitLoginRequest();
         });
         
         console.log('🚀 Formulario enviado, esperando redirección...');
         await page.waitForNavigation({
           waitUntil: 'domcontentloaded',
-          timeout: 60000
+          timeout: 90000
         });
 
         cookies = await page.cookies();
@@ -387,7 +238,31 @@ app.post('/api/autologin', async (req, res) => {
         const tokenData = await extractQlikTokens(page);
         tokens = tokenData;
         
-        await delay(2000);
+        await delay(3000);
+        
+        // Intentar navegar a una página de API para activar tokens
+        try {
+          await page.goto(`${tenantUrl}/api/v1/users/me`, { 
+            waitUntil: 'domcontentloaded', 
+            timeout: 10000 
+          });
+          await delay(2000);
+          
+          const apiCookies = await page.cookies();
+          cookies = [...cookies, ...apiCookies].filter((cookie, index, self) => 
+            index === self.findIndex(c => c.name === cookie.name)
+          );
+          
+          const apiTokens = await extractQlikTokens(page);
+          tokens = {
+            storageData: { ...tokens.storageData, ...apiTokens.storageData },
+            qlikTokens: { ...tokens.qlikTokens, ...apiTokens.qlikTokens },
+            csrfFromPage: apiTokens.csrfFromPage || tokens.csrfFromPage
+          };
+          
+        } catch (apiError) {
+          console.log('⚠️ No se pudo acceder a API endpoint, continuando...');
+        }
         
         console.log('✅ Login exitoso - Tokens capturados');
         success = true;
@@ -395,18 +270,16 @@ app.post('/api/autologin', async (req, res) => {
 
       } catch (e) {
         console.warn(`⚠️ Fallo intento ${i + 1}: ${e.message}`);
-        await delay(2000);
+        await delay(3000);
       }
     }
 
     await browser.close();
-    const duration = Date.now() - startTime;
 
     if (!success) {
       return res.status(500).json({
         success: false,
         message: '❌ No se pudo completar el login tras múltiples intentos',
-        duration: `${duration}ms`
       });
     }
 
@@ -425,13 +298,12 @@ app.post('/api/autologin', async (req, res) => {
     res.json({
       success: true,
       loggedViaPuppeteer: true,
-      duration: `${duration}ms`,
       allCookies: cookies,
       importantCookies,
       cookieString,
       tokens: tokens.qlikTokens,
       storageData: tokens.storageData,
-      capturedHeaders: capturedData.headers.slice(-5),
+      capturedHeaders: capturedData.headers.slice(-10),
       capturedResponses: capturedData.responses,
       finalUrl,
       tenantUrl,
@@ -451,25 +323,16 @@ app.post('/api/autologin', async (req, res) => {
 
   } catch (error) {
     console.error('🛑 Error en Puppeteer:', error.message);
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (closeError) {
-        console.error('Error cerrando browser:', closeError);
-      }
-    }
-    
-    const duration = Date.now() - startTime;
+    if (browser) await browser.close();
     
     res.status(500).json({
       success: false,
-      message: error.message,
-      duration: `${duration}ms`
+      message: error.message
     });
   }
 });
 
-// Endpoint proxy para API de Qlik
+// 🎯 NUEVO: Endpoint proxy para API de Qlik
 app.post('/api/qlik-proxy', async (req, res) => {
   const { endpoint, method = 'GET', body, cookies, csrfToken, tenantUrl } = req.body;
   
@@ -481,11 +344,13 @@ app.post('/api/qlik-proxy', async (req, res) => {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     };
 
+    // Agregar CSRF token si está disponible
     if (csrfToken) {
       headers['X-Qlik-XrfKey'] = csrfToken;
     }
 
     console.log(`🌐 Proxy request to: ${url}`);
+    console.log(`📝 Headers:`, headers);
 
     const response = await fetch(url, {
       method,
@@ -521,7 +386,7 @@ app.post('/api/qlik-proxy', async (req, res) => {
   }
 });
 
-// Endpoint para validar sesión
+// 🎯 NUEVO: Endpoint para validar sesión via proxy
 app.post('/api/validate-session', async (req, res) => {
   const { cookies, csrfToken, tenantUrl } = req.body;
   
@@ -554,48 +419,7 @@ app.post('/api/validate-session', async (req, res) => {
   }
 });
 
-// Manejo de errores global
-app.use((error, req, res, next) => {
-  console.error('❌ Error no manejado:', error);
-  res.status(500).json({
-    success: false,
-    message: 'Error interno del servidor',
-    error: isProduction ? 'Error interno' : error.message
-  });
-});
-
-// Manejo de rutas no encontradas
-app.use('*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Endpoint no encontrado: ${req.originalUrl}`
-  });
-});
-
-// Manejo de señales de terminación
-process.on('SIGTERM', () => {
-  console.log('🛑 SIGTERM recibido, cerrando servidor gracefully...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('🛑 SIGINT recibido, cerrando servidor gracefully...');
-  process.exit(0);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('🚨 Uncaught Exception:', error);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('🚨 Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Backend Qlik Demo corriendo en puerto ${PORT}`);
-  console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🎭 Puppeteer Path: ${process.env.PUPPETEER_EXECUTABLE_PATH || 'default'}`);
-  console.log(`📦 Node Version: ${process.version}`);
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`🚀 Backend Qlik Demo corriendo en http://localhost:${PORT}`);
 });

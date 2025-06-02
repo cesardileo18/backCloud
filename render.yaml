@@ -2,18 +2,8 @@ services:
   - type: web
     name: qlik-backend
     env: docker
-    plan: starter  # Recomiendo usar starter en lugar de free para mejor rendimiento
+    plan: free
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /api/status
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
-        value: "true"
-      - key: PUPPETEER_EXECUTABLE_PATH
-        value: /usr/bin/google-chrome-stable
-      - key: CHROME_BIN
-        value: /usr/bin/google-chrome-stable
-    scaling:
-      minInstances: 1
-      maxInstances: 1
