@@ -576,6 +576,7 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
+
 process.on('SIGINT', () => {
   console.log('🛑 SIGINT recibido, cerrando servidor gracefully...');
   process.exit(0);
