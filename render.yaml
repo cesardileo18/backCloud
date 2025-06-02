@@ -2,8 +2,14 @@ services:
   - type: web
     name: qlik-backend
     env: docker
-    plan: free
+    plan: starter  # Cambiar de 'free' a 'starter' para más recursos
     dockerfilePath: ./Dockerfile
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: "/usr/bin/chromium-browser"
+    buildCommand: npm install --production
+    healthCheckPath: /api/status

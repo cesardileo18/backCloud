@@ -5,13 +5,51 @@ import puppeteer from 'puppeteer';
 const app = express();
 app.use(cors());
 app.use(express.json());
-// const webIntegrationId = "Jqf5E5DGvfziKCFAezrxVJtFZF4gdcn5"
+
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 // Healthcheck
 app.get('/api/status', (req, res) => {
   res.json({ status: '✅ API levantada correctamente' });
 });
+
+// Configuración mejorada de Puppeteer para producción
+const createBrowser = async () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  const config = {
+    headless: 'shell',
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--single-process',
+      '--no-zygote',
+      '--disable-extensions',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-web-security',
+      '--disable-features=TranslateUI',
+      '--disable-ipc-flooding-protection',
+      '--memory-pressure-off',
+      '--max_old_space_size=4096'
+    ],
+    // Aumentar timeouts para Render
+    protocolTimeout: 180000, // 3 minutos
+    defaultViewport: { width: 1280, height: 720 },
+  };
+
+  if (isProduction) {
+    // En producción, usar el Chromium de Playwright
+    config.executablePath = '/usr/bin/chromium-browser';
+  } else {
+    config.executablePath = puppeteer.executablePath();
+  }
+
+  return await puppeteer.launch(config);
+};
 
 // Función para extraer tokens específicos de Qlik
 const extractQlikTokens = async (page) => {
@@ -171,20 +209,16 @@ app.post('/api/autologin', async (req, res) => {
   let capturedData = {};
 
   try {
-    browser = await puppeteer.launch({
-      headless: 'shell',
-      executablePath: puppeteer.executablePath(),
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--single-process',
-        '--no-zygote',
-      ],
-    });
+    console.log('🚀 Iniciando browser...');
+    browser = await createBrowser();
+    console.log('✅ Browser iniciado correctamente');
 
     const page = await browser.newPage();
+    
+    // Configurar timeouts de página
+    page.setDefaultTimeout(120000); // 2 minutos
+    page.setDefaultNavigationTimeout(120000);
+    
     capturedData = await setupRequestInterception(page);
     
     await page.setUserAgent(
@@ -200,17 +234,17 @@ app.post('/api/autologin', async (req, res) => {
     let finalUrl = '';
     let tokens = {};
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 3; i++) { // Reducir intentos para evitar timeouts
       console.log(`🔁 Intento ${i + 1}: navegando a ${loginUrl.toString()}`);
       
       try {
         await page.goto(loginUrl.toString(), {
           waitUntil: 'domcontentloaded',
-          timeout: 60000 + i * 20000,
+          timeout: 90000, // Reducir timeout
         });
         
         console.log('✅ Página cargada');
-        await delay(5000);
+        await delay(3000); // Reducir delay
 
         const userInput = await page.$('#userNameInput');
         const passInput = await page.$('#passwordInput');
@@ -230,7 +264,7 @@ app.post('/api/autologin', async (req, res) => {
         console.log('🚀 Formulario enviado, esperando redirección...');
         await page.waitForNavigation({
           waitUntil: 'domcontentloaded',
-          timeout: 90000
+          timeout: 60000 // Reducir timeout
         });
 
         cookies = await page.cookies();
@@ -238,7 +272,7 @@ app.post('/api/autologin', async (req, res) => {
         const tokenData = await extractQlikTokens(page);
         tokens = tokenData;
         
-        await delay(3000);
+        await delay(2000);
         
         // Intentar navegar a una página de API para activar tokens
         try {
@@ -246,7 +280,7 @@ app.post('/api/autologin', async (req, res) => {
             waitUntil: 'domcontentloaded', 
             timeout: 10000 
           });
-          await delay(2000);
+          await delay(1000);
           
           const apiCookies = await page.cookies();
           cookies = [...cookies, ...apiCookies].filter((cookie, index, self) => 
@@ -270,7 +304,7 @@ app.post('/api/autologin', async (req, res) => {
 
       } catch (e) {
         console.warn(`⚠️ Fallo intento ${i + 1}: ${e.message}`);
-        await delay(3000);
+        await delay(5000); // Aumentar delay entre intentos
       }
     }
 
@@ -419,7 +453,8 @@ app.post('/api/validate-session', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`🚀 Backend Qlik Demo corriendo en http://localhost:${PORT}`);
+// Usar el puerto que Render asigna automáticamente
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Backend Qlik Demo corriendo en puerto ${PORT}`);
 });
