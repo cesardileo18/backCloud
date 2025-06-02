@@ -4,66 +4,63 @@ import puppeteer from 'puppeteer';
 
 const app = express();
 
-// Configuración específica para Docker y Render
+// Configuración
 const isProduction = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 3001;
 
-// CORS configurado para producción
-app.use(cors({
-  origin: isProduction ? process.env.FRONTEND_URL || '*' : '*',
-  credentials: true
-}));
-
+// Middleware
+app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Configuración optimizada de Puppeteer para Docker
+// Configuración de Puppeteer para producción
 const getPuppeteerConfig = () => {
-  const baseConfig = {
-    headless: 'new',
+  if (isProduction) {
+    return {
+      headless: 'new',
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--no-zygote',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--memory-pressure-off'
+      ],
+    };
+  }
+  
+  return {
+    headless: 'shell',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process',
       '--disable-gpu',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--disable-features=TranslateUI',
-      '--disable-ipc-flooding-protection',
-      '--memory-pressure-off',
-      '--max_old_space_size=4096'
+      '--single-process',
+      '--no-zygote',
     ],
   };
-
-  if (isProduction) {
-    return {
-      ...baseConfig,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
-    };
-  }
-
-  return baseConfig;
 };
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-// Healthcheck mejorado
+// Healthcheck
 app.get('/api/status', (req, res) => {
   res.json({ 
     status: '✅ API levantada correctamente',
     environment: process.env.NODE_ENV || 'development',
     port: PORT,
     timestamp: new Date().toISOString(),
+    nodeVersion: process.version,
     puppeteerPath: process.env.PUPPETEER_EXECUTABLE_PATH || 'default'
   });
 });
 
-// Test de Puppeteer para debugging
+// Test de Puppeteer
 app.get('/api/test-browser', async (req, res) => {
   let browser;
   const startTime = Date.now();
@@ -71,7 +68,7 @@ app.get('/api/test-browser', async (req, res) => {
   try {
     console.log('🧪 Iniciando test de browser...');
     const config = getPuppeteerConfig();
-    console.log('📋 Config:', JSON.stringify(config, null, 2));
+    console.log('📋 Config Puppeteer:', JSON.stringify(config, null, 2));
     
     browser = await puppeteer.launch(config);
     console.log('✅ Browser lanzado exitosamente');
@@ -85,8 +82,8 @@ app.get('/api/test-browser', async (req, res) => {
     });
     console.log('✅ Navegación exitosa');
     
-    const content = await page.content();
     const userAgent = await page.evaluate(() => navigator.userAgent);
+    const title = await page.title();
     
     await browser.close();
     
@@ -97,7 +94,7 @@ app.get('/api/test-browser', async (req, res) => {
       message: '🎉 Puppeteer funcionando correctamente',
       duration: `${duration}ms`,
       userAgent,
-      contentLength: content.length,
+      title,
       config: config
     });
     
@@ -116,7 +113,7 @@ app.get('/api/test-browser', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message,
-      stack: error.stack,
+      stack: isProduction ? undefined : error.stack,
       duration: `${duration}ms`,
       config: getPuppeteerConfig()
     });
@@ -270,7 +267,11 @@ const setupRequestInterception = async (page) => {
         request.continue();
       } catch (e) {
         console.warn('Error en request interceptor:', e);
-        request.continue();
+        try {
+          request.continue();
+        } catch (continueError) {
+          console.warn('Error haciendo continue:', continueError);
+        }
       }
     });
 
@@ -302,7 +303,7 @@ const setupRequestInterception = async (page) => {
   return capturedData;
 };
 
-// Endpoint de autologin con mejor manejo de errores
+// Endpoint de autologin
 app.post('/api/autologin', async (req, res) => {
   const { username, password, tenantUrl, webIntegrationId } = req.body;
   const returnto = req.headers.origin || 'http://localhost:5173';
@@ -341,7 +342,7 @@ app.post('/api/autologin', async (req, res) => {
     let finalUrl = '';
     let tokens = {};
 
-    for (let i = 0; i < 3; i++) { // Reducido a 3 intentos
+    for (let i = 0; i < 3; i++) {
       console.log(`🔁 Intento ${i + 1}: navegando a ${loginUrl.toString()}`);
       
       try {
@@ -351,9 +352,9 @@ app.post('/api/autologin', async (req, res) => {
         });
         
         console.log('✅ Página cargada');
-        await delay(3000); // Reducido delay
+        await delay(3000);
         
-        // Verificar elementos del login con timeout
+        // Verificar elementos del login
         const userInput = await page.waitForSelector('#userNameInput', { timeout: 10000 });
         const passInput = await page.waitForSelector('#passwordInput', { timeout: 10000 });
         
@@ -468,7 +469,7 @@ app.post('/api/autologin', async (req, res) => {
   }
 });
 
-// Resto de endpoints (proxy y validación)
+// Endpoint proxy para API de Qlik
 app.post('/api/qlik-proxy', async (req, res) => {
   const { endpoint, method = 'GET', body, cookies, csrfToken, tenantUrl } = req.body;
   
@@ -520,6 +521,7 @@ app.post('/api/qlik-proxy', async (req, res) => {
   }
 });
 
+// Endpoint para validar sesión
 app.post('/api/validate-session', async (req, res) => {
   const { cookies, csrfToken, tenantUrl } = req.body;
   
@@ -566,7 +568,7 @@ app.use((error, req, res, next) => {
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
-    message: 'Endpoint no encontrado'
+    message: `Endpoint no encontrado: ${req.originalUrl}`
   });
 });
 
@@ -575,7 +577,6 @@ process.on('SIGTERM', () => {
   console.log('🛑 SIGTERM recibido, cerrando servidor gracefully...');
   process.exit(0);
 });
-
 
 process.on('SIGINT', () => {
   console.log('🛑 SIGINT recibido, cerrando servidor gracefully...');
@@ -596,4 +597,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Backend Qlik Demo corriendo en puerto ${PORT}`);
   console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🎭 Puppeteer Path: ${process.env.PUPPETEER_EXECUTABLE_PATH || 'default'}`);
+  console.log(`📦 Node Version: ${process.version}`);
 });
