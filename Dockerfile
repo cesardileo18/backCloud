@@ -1,7 +1,7 @@
-# Usar imagen oficial de Node.js con Ubuntu
-FROM node:18-slim
+# Usar Node.js 22
+FROM node:22-slim
 
-# Instalar dependencias del sistema necesarias para Puppeteer
+# Instalar dependencias del sistema para Puppeteer
 RUN apt-get update \
     && apt-get install -y wget gnupg \
     && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
@@ -11,32 +11,26 @@ RUN apt-get update \
       --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Crear usuario no-root para mayor seguridad
-RUN groupadd -r pptruser && useradd -r -g pptruser -G audio,video pptruser \
-    && mkdir -p /home/pptruser/Downloads \
-    && chown -R pptruser:pptruser /home/pptruser
-
 # Crear directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de dependencias
-COPY package*.json ./
+# Copiar solo package.json primero
+COPY package.json ./
 
-# Instalar dependencias de Node.js
-RUN npm ci --only=production && npm cache clean --force
+# Limpiar cualquier caché anterior y regenerar package-lock.json
+RUN npm cache clean --force
 
-# Copiar el resto del código
-COPY . .
+# Instalar dependencias y generar nuevo package-lock.json
+RUN npm install --omit=dev && npm cache clean --force
 
-# Cambiar ownership al usuario pptruser
-RUN chown -R pptruser:pptruser /app
-
-# Cambiar al usuario no-root
-USER pptruser
+# Copiar el resto del código (excluyendo package-lock.json viejo)
+COPY server.js ./
+COPY render.yaml ./
 
 # Variables de entorno para Puppeteer
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable \
+    NODE_ENV=production
 
 # Exponer el puerto
 EXPOSE 3001
