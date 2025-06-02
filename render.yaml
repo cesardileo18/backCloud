@@ -4,12 +4,33 @@ services:
     env: docker
     plan: free
     dockerfilePath: ./Dockerfile
+    
+    # Variables de entorno optimizadas para Render
     envVars:
       - key: NODE_ENV
         value: production
       - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
         value: "true"
       - key: PUPPETEER_EXECUTABLE_PATH
-        value: "/usr/bin/chromium-browser"
-    buildCommand: npm install --production
-    healthCheckPath: /api/status
+        value: "/usr/bin/google-chrome-stable"
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=512"
+      - key: UV_THREADPOOL_SIZE
+        value: "4"
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+    
+    # Comando de build optimizado
+    buildCommand: npm ci --only=production --no-audit
+    
+    # Health check actualizado
+    healthCheckPath: /api/health
+    
+    # Configuración de auto-deploy
+    autoDeploy: true
+    
+    # Configuración de recursos (para planes pagos)
+    # disk: 
+    #   name: qlik-backend-disk
+    #   mountPath: /app/temp
+    #   sizeGB: 1
