@@ -16,41 +16,9 @@ app.get('/api/status', (req, res) => {
 const createMinimalBrowser = async () => {
   const isProduction = process.env.NODE_ENV === 'production';
   
-  // Detectar la ruta correcta de Chromium en producción
-  let executablePath;
-  if (isProduction) {
-    // Rutas posibles en la imagen de Playwright
-    const possiblePaths = [
-      '/usr/bin/chromium-browser',
-      '/usr/bin/chromium',
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/google-chrome',
-      '/opt/google/chrome/chrome'
-    ];
-    
-    // Usar la primera ruta que exista
-    const fs = await import('fs');
-    executablePath = possiblePaths.find(path => {
-      try {
-        return fs.existsSync(path);
-      } catch (e) {
-        return false;
-      }
-    });
-    
-    if (!executablePath) {
-      throw new Error('No se encontró Chromium en el sistema. Rutas probadas: ' + possiblePaths.join(', '));
-    }
-    
-    console.log('🔍 Chromium encontrado en:', executablePath);
-  } else {
-    executablePath = puppeteer.executablePath();
-  }
-
   const config = {
     headless: 'shell',
     pipe: true,
-    executablePath,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -99,6 +67,14 @@ const createMinimalBrowser = async () => {
     defaultViewport: { width: 400, height: 300 }
   };
 
+  // En producción, usar Chrome que viene con la imagen oficial de Puppeteer
+  if (isProduction) {
+    config.executablePath = '/usr/bin/google-chrome-stable';
+  } else {
+    config.executablePath = puppeteer.executablePath();
+  }
+
+  console.log('🔍 Usando ejecutable:', config.executablePath);
   return await puppeteer.launch(config);
 };
 
