@@ -13,7 +13,7 @@ app.get('/api/status', (req, res) => {
   res.json({ status: '✅ API levantada correctamente' });
 });
 
-// Configuración mejorada de Puppeteer para producción
+// Configuración ultra-agresiva para plan free de Render
 const createBrowser = async () => {
   const isProduction = process.env.NODE_ENV === 'production';
   
@@ -31,14 +31,29 @@ const createBrowser = async () => {
       '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding',
       '--disable-web-security',
-      '--disable-features=TranslateUI',
+      '--disable-features=TranslateUI,VizDisplayCompositor',
       '--disable-ipc-flooding-protection',
       '--memory-pressure-off',
-      '--max_old_space_size=4096'
+      '--max_old_space_size=512', // Reducir memoria para plan free
+      '--disable-background-networking',
+      '--disable-default-apps',
+      '--disable-sync',
+      '--disable-translate',
+      '--hide-scrollbars',
+      '--metrics-recording-only',
+      '--mute-audio',
+      '--no-first-run',
+      '--safebrowsing-disable-auto-update',
+      '--disable-client-side-phishing-detection',
+      '--disable-component-update',
+      '--disable-hang-monitor',
+      '--disable-prompt-on-repost',
+      '--disable-domain-reliability'
     ],
-    // Aumentar timeouts para Render
-    protocolTimeout: 180000, // 3 minutos
-    defaultViewport: { width: 1280, height: 720 },
+    // Timeouts más agresivos para plan free
+    protocolTimeout: 60000, // 1 minuto
+    defaultViewport: { width: 800, height: 600 }, // Viewport más pequeño
+    pipe: true, // Usar pipe en lugar de websocket
   };
 
   if (isProduction) {
@@ -215,9 +230,9 @@ app.post('/api/autologin', async (req, res) => {
 
     const page = await browser.newPage();
     
-    // Configurar timeouts de página
-    page.setDefaultTimeout(120000); // 2 minutos
-    page.setDefaultNavigationTimeout(120000);
+    // Configurar timeouts de página más agresivos para plan free
+    page.setDefaultTimeout(45000); // 45 segundos
+    page.setDefaultNavigationTimeout(45000);
     
     capturedData = await setupRequestInterception(page);
     
@@ -234,17 +249,17 @@ app.post('/api/autologin', async (req, res) => {
     let finalUrl = '';
     let tokens = {};
 
-    for (let i = 0; i < 3; i++) { // Reducir intentos para evitar timeouts
+    for (let i = 0; i < 2; i++) { // Solo 2 intentos para plan free
       console.log(`🔁 Intento ${i + 1}: navegando a ${loginUrl.toString()}`);
       
       try {
         await page.goto(loginUrl.toString(), {
           waitUntil: 'domcontentloaded',
-          timeout: 90000, // Reducir timeout
+          timeout: 45000, // Timeout más corto para plan free
         });
         
         console.log('✅ Página cargada');
-        await delay(3000); // Reducir delay
+        await delay(2000); // Delay más corto
 
         const userInput = await page.$('#userNameInput');
         const passInput = await page.$('#passwordInput');
@@ -253,8 +268,8 @@ app.post('/api/autologin', async (req, res) => {
           throw new Error('⚠️ No se encontraron los campos de login');
         }
 
-        await userInput.type(username, { delay: 30 });
-        await passInput.type(password, { delay: 30 });
+        await userInput.type(username, { delay: 20 }); // Más rápido
+        await passInput.type(password, { delay: 20 });
         
         console.log('🚀 Ejecutando Login.submitLoginRequest()');
         await page.evaluate(() => {
@@ -264,7 +279,7 @@ app.post('/api/autologin', async (req, res) => {
         console.log('🚀 Formulario enviado, esperando redirección...');
         await page.waitForNavigation({
           waitUntil: 'domcontentloaded',
-          timeout: 60000 // Reducir timeout
+          timeout: 45000 // Timeout más corto
         });
 
         cookies = await page.cookies();
@@ -272,15 +287,14 @@ app.post('/api/autologin', async (req, res) => {
         const tokenData = await extractQlikTokens(page);
         tokens = tokenData;
         
-        await delay(2000);
+        await delay(1000); // Delay mínimo
         
-        // Intentar navegar a una página de API para activar tokens
+        // Intentar navegar a una página de API para activar tokens (más rápido)
         try {
           await page.goto(`${tenantUrl}/api/v1/users/me`, { 
             waitUntil: 'domcontentloaded', 
-            timeout: 10000 
+            timeout: 8000 // Timeout muy corto
           });
-          await delay(1000);
           
           const apiCookies = await page.cookies();
           cookies = [...cookies, ...apiCookies].filter((cookie, index, self) => 
@@ -304,7 +318,7 @@ app.post('/api/autologin', async (req, res) => {
 
       } catch (e) {
         console.warn(`⚠️ Fallo intento ${i + 1}: ${e.message}`);
-        await delay(5000); // Aumentar delay entre intentos
+        await delay(2000); // Delay corto entre intentos
       }
     }
 

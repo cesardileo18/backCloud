@@ -2,7 +2,7 @@ services:
   - type: web
     name: qlik-backend
     env: docker
-    plan: starter  # Cambiar de 'free' a 'starter' para más recursos
+    plan: free
     dockerfilePath: ./Dockerfile
     envVars:
       - key: NODE_ENV
